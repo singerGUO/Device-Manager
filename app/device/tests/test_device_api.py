@@ -13,10 +13,17 @@ from rest_framework.test import APIClient
 
 from core.models import Device
 
-from device.serializers import DeviceSerializer
-
+from device.serializers import (
+    DeviceSerializer,
+    DeviceDetailSerializer,
+)
 
 DEVICES_URL = reverse('device:device-list')
+
+
+def detail_url(device_id):
+    """Create and return a device detail URL."""
+    return reverse('device:device-detail', args=[device_id])
 
 
 def create_device(user, **params):
@@ -32,6 +39,11 @@ def create_device(user, **params):
 
     device = Device.objects.create(user=user, **defaults)
     return device
+
+
+def create_user(**params):
+    """Create and return a new user."""
+    return get_user_model().objects.create_user(**params)
 
 
 class PublicDeviceAPITests(TestCase):
@@ -52,10 +64,7 @@ class PrivateDeviceApiTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.user = get_user_model().objects.create_user(
-            'user@example.com',
-            'testpass123',
-        )
+        self.user = create_user(email='user@example.com', password='test123')
         self.client.force_authenticate(self.user)
 
     def test_retrieve_devices(self):
@@ -72,10 +81,7 @@ class PrivateDeviceApiTests(TestCase):
 
     def test_device_list_limited_to_user(self):
         """Test list of devices is limited to authenticated user."""
-        other_user = get_user_model().objects.create_user(
-            'other@example.com',
-            'password123',
-        )
+        other_user = create_user(email='other@example.com', password='test123')
         create_device(user=other_user)
         create_device(user=self.user)
 
@@ -85,3 +91,105 @@ class PrivateDeviceApiTests(TestCase):
         serializer = DeviceSerializer(devices, many=True)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data, serializer.data)
+
+    def test_get_device_detail(self):
+        """Test get device detail."""
+        device = create_device(user=self.user)
+
+        url = detail_url(device.id)
+        res = self.client.get(url)
+
+        serializer = DeviceDetailSerializer(device)
+        self.assertEqual(res.data, serializer.data)
+
+    def test_create_device(self):
+        """Test creating a device."""
+        payload = {
+            'title': 'Sample device',
+            'time_minutes': 30,
+            'value': Decimal('5.99'),
+        }
+        res = self.client.post(DEVICES_URL, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        device = Device.objects.get(id=res.data['id'])
+        for k, v in payload.items():
+            self.assertEqual(getattr(device, k), v)
+        self.assertEqual(device.user, self.user)
+
+    def test_partial_update(self):
+        """Test partial update of a deice."""
+        original_link = 'https://example.com/device.pdf'
+        device = create_device(
+            user=self.user,
+            title='Sample device title',
+            link=original_link,
+        )
+
+        payload = {'title': 'New device title'}
+        url = detail_url(device.id)
+        res = self.client.patch(url, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        device.refresh_from_db()
+        self.assertEqual(device.title, payload['title'])
+        self.assertEqual(device.link, original_link)
+        self.assertEqual(device.user, self.user)
+
+    def test_full_update(self):
+        """Test full update of device."""
+        device = create_device(
+            user=self.user,
+            title='Sample device title',
+            link='https://exmaple.com/device.pdf',
+            description='Sample device description.',
+        )
+
+        payload = {
+            'title': 'New device title',
+            'link': 'https://example.com/new-device.pdf',
+            'description': 'New device description',
+            'time_minutes': 10,
+            'value': Decimal('2.50'),
+        }
+        url = detail_url(device.id)
+        res = self.client.put(url, payload)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        device.refresh_from_db()
+        for k, v in payload.items():
+            self.assertEqual(getattr(device, k), v)
+        self.assertEqual(device.user, self.user)
+
+    def test_update_user_returns_error(self):
+        """Test changing the device user results in an error."""
+        new_user = create_user(email='user2@example.com', password='test123')
+        device = create_device(user=self.user)
+
+        payload = {'user': new_user.id}
+        url = detail_url(device.id)
+        self.client.patch(url, payload)
+
+        device.refresh_from_db()
+        self.assertEqual(device.user, self.user)
+
+    def test_delete_device(self):
+        """Test deleting a device successful."""
+        device = create_device(user=self.user)
+
+        url = detail_url(device.id)
+        res = self.client.delete(url)
+
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Device.objects.filter(id=device.id).exists())
+
+    def test_device_other_users_device_error(self):
+        """Test trying to delete another users device gives error."""
+        new_user = create_user(email='user2@example.com', password='test123')
+        device = create_device(user=new_user)
+
+        url = detail_url(device.id)
+        res = self.client.delete(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Device.objects.filter(id=device.id).exists())

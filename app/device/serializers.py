@@ -13,3 +13,10 @@ class DeviceSerializer(serializers.ModelSerializer):
         model = Device
         fields = ['id', 'title', 'time_minutes', 'value', 'link']
         read_only_fields = ['id']
+
+
+class DeviceDetailSerializer(DeviceSerializer):
+    """Serializer for device detail view."""
+
+    class Meta(DeviceSerializer.Meta):
+        fields = DeviceSerializer.Meta.fields + ['description']
