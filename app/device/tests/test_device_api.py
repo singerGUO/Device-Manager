@@ -3,7 +3,10 @@ Tests for device APIs
 """
 
 from decimal import Decimal
+import tempfile
+import os
 
+from PIL import Image
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -14,6 +17,7 @@ from rest_framework.test import APIClient
 from core.models import (
     Device,
     Tag,
+    Sensor,
 )
 
 from device.serializers import (
@@ -27,6 +31,11 @@ DEVICES_URL = reverse('device:device-list')
 def detail_url(device_id):
     """Create and return a device detail URL."""
     return reverse('device:device-detail', args=[device_id])
+
+
+def image_upload_url(device_id):
+    """Create and return an image upload URL."""
+    return reverse('device:device-upload-image', args=[device_id])
 
 
 def create_device(user, **params):
@@ -270,3 +279,128 @@ class PrivateDeviceApiTests(TestCase):
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(device.tags.count(), 0)
+
+    def test_create_device_with_new_sensors(self):
+        """Test creating a device with new sensors."""
+        payload = {
+            'title': 'AHU',
+            'time_minutes': 60,
+            'value': Decimal('4.30'),
+            'sensors': [{'name': 'temp'}, {'name': 'humidity'}],
+        }
+        res = self.client.post(DEVICES_URL, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        devices = Device.objects.filter(user=self.user)
+        self.assertEqual(devices.count(), 1)
+        device = devices[0]
+        self.assertEqual(device.sensors.count(), 2)
+        for sensor in payload['sensors']:
+            exists = device.sensors.filter(
+                name=sensor['name'],
+                user=self.user,
+            ).exists()
+            self.assertTrue(exists)
+
+    def test_create_device_with_existing_sensor(self):
+        """Test creating a new device with existing sensor."""
+        sensor = Sensor.objects.create(user=self.user, name='temp')
+        payload = {
+            'title': 'ahu',
+            'time_minutes': 25,
+            'value': '2.55',
+            'sensors': [{'name': 'temp'}, {'name': 'humidity'}],
+        }
+        res = self.client.post(DEVICES_URL, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        devices = Device.objects.filter(user=self.user)
+        self.assertEqual(devices.count(), 1)
+        device = devices[0]
+        self.assertEqual(device.sensors.count(), 2)
+        self.assertIn(sensor, device.sensors.all())
+        for sensor in payload['sensors']:
+            exists = device.sensors.filter(
+                name=sensor['name'],
+                user=self.user,
+            ).exists()
+            self.assertTrue(exists)
+
+    def test_create_sensor_on_update(self):
+        """Test creating an sensor when updating a device."""
+        device = create_device(user=self.user)
+
+        payload = {'sensors': [{'name': 'temp'}]}
+        url = detail_url(device.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        new_sensor = Sensor.objects.get(user=self.user, name='temp')
+        self.assertIn(new_sensor, device.sensors.all())
+
+    def test_update_device_assign_sensor(self):
+        """Test assigning an existing sensor when updating a device."""
+        sensor1 = Sensor.objects.create(user=self.user, name='Pepper')
+        device = create_device(user=self.user)
+        device.sensors.add(sensor1)
+
+        sensor2 = Sensor.objects.create(user=self.user, name='temp')
+        payload = {'sensors': [{'name': 'temp'}]}
+        url = detail_url(device.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn(sensor2, device.sensors.all())
+        self.assertNotIn(sensor1, device.sensors.all())
+
+    def test_clear_device_sensors(self):
+        """Test clearing a devices sensors."""
+        sensor = Sensor.objects.create(user=self.user, name='temp')
+        device = create_device(user=self.user)
+        device.sensors.add(sensor)
+
+        payload = {'sensors': []}
+        url = detail_url(device.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(device.sensors.count(), 0)
+
+
+class ImageUploadTests(TestCase):
+    """Tests for the image upload API."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            'user@example.com',
+            'password123',
+        )
+        self.client.force_authenticate(self.user)
+        self.device = create_device(user=self.user)
+
+    def tearDown(self):
+        self.device.image.delete()
+
+    def test_upload_image(self):
+        """Test uploading an image to a device."""
+        url = image_upload_url(self.device.id)
+        with tempfile.NamedTemporaryFile(suffix='.jpg') as image_file:
+            img = Image.new('RGB', (10, 10))
+            img.save(image_file, format='JPEG')
+            image_file.seek(0)
+            payload = {'image': image_file}
+            res = self.client.post(url, payload, format='multipart')
+
+        self.device.refresh_from_db()
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('image', res.data)
+        self.assertTrue(os.path.exists(self.device.image.path))
+
+    def test_upload_image_bad_request(self):
+        """Test uploading an invalid image."""
+        url = image_upload_url(self.device.id)
+        payload = {'image': 'notanimage'}
+        res = self.client.post(url, payload, format='multipart')
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)

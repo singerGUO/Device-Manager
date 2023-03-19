@@ -2,11 +2,17 @@
 Tests for models.
 """
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 
 from core import models
+
+
+def create_user(email='user@example.com', password='testpass123'):
+    """Create a return a new user."""
+    return get_user_model().objects.create_user(email, password)
 
 
 class ModelTests(TestCase):
@@ -66,3 +72,29 @@ class ModelTests(TestCase):
         )
 
         self.assertEqual(str(device), device.title)
+
+    def test_create_tag(self):
+        """Test creating a tag is successful."""
+        user = create_user()
+        tag = models.Tag.objects.create(user=user, name='Tag1')
+
+        self.assertEqual(str(tag), tag.name)
+
+    def test_create_sensor(self):
+        """Test creating an sensor is successful."""
+        user = create_user()
+        sensor = models.Sensor.objects.create(
+            user=user,
+            name='Sensor1'
+        )
+
+        self.assertEqual(str(sensor), sensor.name)
+
+    @patch('core.models.uuid.uuid4')
+    def test_device_file_name_uuid(self, mock_uuid):
+        """Test generating image path."""
+        uuid = 'test-uuid'
+        mock_uuid.return_value = uuid
+        file_path = models.device_image_file_path(None, 'example.jpg')
+
+        self.assertEqual(file_path, f'uploads/device/{uuid}.jpg')
