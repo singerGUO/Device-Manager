@@ -13,6 +13,7 @@ from device import views
 
 router = DefaultRouter()
 router.register('devices', views.DeviceViewSet)
+router.register('tags', views.TagViewSet)
 
 app_name = 'device'
 

@@ -11,7 +11,10 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import Device
+from core.models import (
+    Device,
+    Tag,
+)
 
 from device.serializers import (
     DeviceSerializer,
@@ -193,3 +196,77 @@ class PrivateDeviceApiTests(TestCase):
 
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(Device.objects.filter(id=device.id).exists())
+
+    def test_create_device_with_new_tags(self):
+        """Test creating a device with new tags."""
+        payload = {
+            'title': 'DX',
+            'time_minutes': 30,
+            'value': Decimal('2.50'),
+            'tags': [{'name': 'Cooling device'}, {'name': 'small_unit'}],
+        }
+        res = self.client.post(DEVICES_URL, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        devices = Device.objects.filter(user=self.user)
+        self.assertEqual(devices.count(), 1)
+        device = devices[0]
+        self.assertEqual(device.tags.count(), 2)
+        for tag in payload['tags']:
+            exists = device.tags.filter(
+                name=tag['name'],
+                user=self.user,
+            ).exists()
+            self.assertTrue(exists)
+
+    def test_create_device_with_existing_tags(self):
+        """Test creating a device with existing tag."""
+        tag_meter = Tag.objects.create(user=self.user, name='meter')
+        payload = {
+            'title': 'unknown device',
+            'time_minutes': 60,
+            'value': Decimal('4.50'),
+            'tags': [{'name': 'meter'}, {'name': 'small_unit'}],
+        }
+        res = self.client.post(DEVICES_URL, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        devices = Device.objects.filter(user=self.user)
+        self.assertEqual(devices.count(), 1)
+        device = devices[0]
+        self.assertEqual(device.tags.count(), 2)
+        self.assertIn(tag_meter, device.tags.all())
+        for tag in payload['tags']:
+            exists = device.tags.filter(
+                name=tag['name'],
+                user=self.user,
+            ).exists()
+            self.assertTrue(exists)
+
+    def test_update_device_assign_tag(self):
+        """Test assigning an existing tag when updating a device."""
+        tag_small_unit = Tag.objects.create(user=self.user, name='small_unit')
+        device = create_device(user=self.user)
+        device.tags.add(tag_small_unit)
+
+        tag_large_unit = Tag.objects.create(user=self.user, name='large_unit')
+        payload = {'tags': [{'name': 'large_unit'}]}
+        url = detail_url(device.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn(tag_large_unit, device.tags.all())
+        self.assertNotIn(tag_small_unit, device.tags.all())
+
+    def test_clear_device_tags(self):
+        """Test clearing a devices tags."""
+        tag = Tag.objects.create(user=self.user, name='small_unit')
+        device = create_device(user=self.user)
+        device.tags.add(tag)
+
+        payload = {'tags': []}
+        url = detail_url(device.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(device.tags.count(), 0)
