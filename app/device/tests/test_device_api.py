@@ -366,6 +366,46 @@ class PrivateDeviceApiTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(device.sensors.count(), 0)
 
+    def test_filter_by_tags(self):
+        """Test filtering devices by tags."""
+        r1 = create_device(user=self.user, title='AHU')
+        r2 = create_device(user=self.user, title='Fan')
+        tag1 = Tag.objects.create(user=self.user, name='cooling_device1')
+        tag2 = Tag.objects.create(user=self.user, name='cooling_device2')
+        r1.tags.add(tag1)
+        r2.tags.add(tag2)
+        r3 = create_device(user=self.user, title='Door')
+
+        params = {'tags': f'{tag1.id},{tag2.id}'}
+        res = self.client.get(DEVICES_URL, params)
+
+        s1 = DeviceSerializer(r1)
+        s2 = DeviceSerializer(r2)
+        s3 = DeviceSerializer(r3)
+        self.assertIn(s1.data, res.data)
+        self.assertIn(s2.data, res.data)
+        self.assertNotIn(s3.data, res.data)
+
+    def test_filter_by_sensors(self):
+        """Test filtering devices by sensors."""
+        r1 = create_device(user=self.user, title='AHU')
+        r2 = create_device(user=self.user, title='Fan')
+        sensor1 = Sensor.objects.create(user=self.user, name='temp')
+        sensor2 = Sensor.objects.create(user=self.user, name='humi')
+        r1.sensors.add(sensor1)
+        r2.sensors.add(sensor2)
+        r3 = create_device(user=self.user, title='light')
+
+        params = {'sensors': f'{sensor1.id},{sensor2.id}'}
+        res = self.client.get(DEVICES_URL, params)
+
+        s1 = DeviceSerializer(r1)
+        s2 = DeviceSerializer(r2)
+        s3 = DeviceSerializer(r3)
+        self.assertIn(s1.data, res.data)
+        self.assertIn(s2.data, res.data)
+        self.assertNotIn(s3.data, res.data)
+
 
 class ImageUploadTests(TestCase):
     """Tests for the image upload API."""

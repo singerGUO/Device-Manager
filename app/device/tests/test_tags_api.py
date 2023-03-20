@@ -4,11 +4,14 @@ Tests for the tags API.
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.test import TestCase
-
+from decimal import Decimal
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import Tag
+from core.models import (
+    Tag,
+    Device,
+)
 
 from device.serializers import TagSerializer
 
@@ -94,3 +97,44 @@ class PrivateTagsApiTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         tags = Tag.objects.filter(user=self.user)
         self.assertFalse(tags.exists())
+
+    def test_filter_tags_assigned_to_devices(self):
+        """Test listing tags to those assigned to devices."""
+        tag1 = Tag.objects.create(user=self.user, name='small_unit')
+        tag2 = Tag.objects.create(user=self.user, name='large_unit')
+        device = Device.objects.create(
+            title='AHU',
+            time_minutes=10,
+            value=Decimal('2.50'),
+            user=self.user,
+        )
+        device.tags.add(tag1)
+
+        res = self.client.get(TAGS_URL, {'assigned_only': 1})
+
+        s1 = TagSerializer(tag1)
+        s2 = TagSerializer(tag2)
+        self.assertIn(s1.data, res.data)
+        self.assertNotIn(s2.data, res.data)
+
+    def test_filtered_tags_unique(self):
+        """Test filtered tags returns a unique list."""
+        tag = Tag.objects.create(user=self.user, name='small_unit')
+        Tag.objects.create(user=self.user, name='large_unit')
+        device1 = Device.objects.create(
+            title='AHU',
+            time_minutes=5,
+            value=Decimal('5.00'),
+            user=self.user,
+        )
+        device2 = Device.objects.create(
+            title='Fan',
+            time_minutes=3,
+            value=Decimal('2.00'),
+            user=self.user,
+        )
+        device1.tags.add(tag)
+        device2.tags.add(tag)
+
+        res = self.client.get(TAGS_URL, {'assigned_only': 1})
+        self.assertEqual(len(res.data), 1)

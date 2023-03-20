@@ -93,7 +93,7 @@ class DeviceDetailSerializer(DeviceSerializer):
     """Serializer for device detail view."""
 
     class Meta(DeviceSerializer.Meta):
-        fields = DeviceSerializer.Meta.fields + ['description']
+        fields = DeviceSerializer.Meta.fields + ['description', 'image']
 
 
 class DeviceImageSerializer(serializers.ModelSerializer):

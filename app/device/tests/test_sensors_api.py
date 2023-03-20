@@ -1,6 +1,7 @@
 """
 Tests for the sensors API.
 """
+from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.test import TestCase
@@ -8,7 +9,10 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import Sensor
+from core.models import (
+    Sensor,
+    Device,
+)
 
 from device.serializers import SensorSerializer
 
@@ -94,3 +98,45 @@ class PrivatesSensorsApiTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         sensors = Sensor.objects.filter(user=self.user)
         self.assertFalse(sensors.exists())
+
+    def test_filter_sensors_assigned_to_devices(self):
+        """Test listing sensors to those assigned to devices."""
+        se1 = Sensor.objects.create(user=self.user, name='temp')
+        se2 = Sensor.objects.create(user=self.user, name='humd')
+        device = Device.objects.create(
+            title='AHU',
+            time_minutes=5,
+            value=Decimal('4.50'),
+            user=self.user,
+        )
+        device.sensors.add(se1)
+
+        res = self.client.get(SENSORS_URL, {'assigned_only': 1})
+
+        s1 = SensorSerializer(se1)
+        s2 = SensorSerializer(se2)
+        self.assertIn(s1.data, res.data)
+        self.assertNotIn(s2.data, res.data)
+
+    def test_filtered_sensors_unique(self):
+        """Test filtered sensors returns a unique list."""
+        se = Sensor.objects.create(user=self.user, name='temp')
+        Sensor.objects.create(user=self.user, name='light')
+        device1 = Device.objects.create(
+            title='AHU',
+            time_minutes=60,
+            value=Decimal('7.00'),
+            user=self.user,
+        )
+        device2 = Device.objects.create(
+            title='FAN',
+            time_minutes=20,
+            value=Decimal('4.00'),
+            user=self.user,
+        )
+        device1.sensors.add(se)
+        device2.sensors.add(se)
+
+        res = self.client.get(SENSORS_URL, {'assigned_only': 1})
+
+        self.assertEqual(len(res.data), 1)
