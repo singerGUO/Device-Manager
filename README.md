@@ -50,7 +50,7 @@ docker-compose run --rm app sh -c "python manage.py test"
 
 ##### Run the service
 
-```
+```shell
 docker-compose up
 ```
 
@@ -61,6 +61,14 @@ http://127.0.0.1:8000/api/docs/#/
 ##### Database Management locally
 
 http://127.0.0.1:8000/api/admin/#/
+
+###### create a super user for log into admin
+
+```shell
+docker-compose run --rm app sh -c "python manage.py createsuperuser"
+```
+
+
 
 #### Authorize as user
 
@@ -90,7 +98,7 @@ In progress
 
 - Container: Docker
 
-- CI/CD:  Github
+- CI/CD:  Github Actions
 
 - Server: Nginx, AWS EC2,uWsgi, Django Development Server(default)
 
